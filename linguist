@@ -1,0 +1,73 @@
+#!/bin/bash
+# linguist script by mitcho
+# usage: linguist source.(tex|md|markdown) [template.tex]
+
+filename=$1
+dirpart=$(dirname "$filename")
+
+# look for root:
+root=$(grep '^% !TEX root = \(.*\)$' "$filename")
+if [ "$root" != "" ]
+then
+	echo 'found root!'
+	filename="${dirpart}/${root#% !TEX root = }" # this seems fragile?
+	echo "switched to ${filename}"
+fi
+
+dirpart=$(dirname "$filename")
+localname=$(basename "$filename")
+extension="${localname##*.}"
+namepart="${localname%.*}"
+
+# debug:
+# echo 'dirpart', $dirpart
+# echo 'extension', $extension
+# echo 'namepart', $namepart
+
+pushd "$dirpart"
+
+	if [ $extension == "md" -o $extension == "markdown" ]
+	then
+
+		if [ -z "$2" ]
+		then
+			# starty by looking for the template at the top:
+			template=$(grep '^% !TEX template = \(.*\)$' "$filename")
+			if [ "$template" != "" ]
+			then
+				echo 'found template!'
+				template="${dirpart}/${template#% !TEX template = }" # this seems fragile?
+				echo "switched to ${template}"
+			else
+				if [ -e "${namepart}.template.tex" ]
+				then
+					template="${namepart}.template.tex"
+				else	
+					template="$HOME/.pandoc/templates/default.latex"
+				fi
+			fi
+		else
+			template="$2"
+		fi
+		
+		sed -e 's/^% !TEX.*$//;' "$1" > "${namepart}-tmp.md"
+	
+		pandoc -f markdown -t latex --template="$template" "${namepart}-tmp.md" -o "${namepart}.tex"
+
+		sed -e 's/{\[}changed{\]}/\\begin{changed}/; s/{\[}\/changed{\]}/\\end{changed}/; s/\[changed\]/\\begin{changed}/; s/\[\/changed\]/\\end{changed}/' "${namepart}.tex" > "${namepart}-post.tex"
+		rm "${namepart}-tmp.md" "${namepart}.tex"
+		mv "${namepart}-post.tex" "${namepart}.tex"
+	else
+		if [ $extension != "tex" ]
+		then
+			echo "Only markdown and tex input is accepted."
+			exit 1
+		fi
+	fi
+
+	bibtex "${namepart}"
+	xelatex -interaction=nonstopmode "$namepart"
+	bibtex "${namepart}"
+	open -a 'Skim' "${namepart}.pdf"
+
+popd
